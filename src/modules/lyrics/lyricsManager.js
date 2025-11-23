@@ -42,14 +42,25 @@ function combineLyricsData(baseLyrics, translation, romanization) {
     }
 
     if (romanizedLine) {
-      if (baseLyrics.type === "Word" && romanizedLine.chunk?.length > 0 && updatedLine.syllabus?.length > 0) {
-        updatedLine.syllabus = updatedLine.syllabus.map((syllable, sylIndex) => {
-          const romanizedSyllable = romanizedLine.chunk[sylIndex];
-          return {
-            ...syllable,
-            romanizedText: romanizedSyllable?.text || syllable.text
-          };
-        });
+      if (baseLyrics.type === "Word" && updatedLine.syllabus?.length > 0) {
+        // Gemini format supplies romanization in `chunk`; Google can embed it in `syllabus`
+        if (romanizedLine.chunk?.length > 0) {
+          updatedLine.syllabus = updatedLine.syllabus.map((syllable, sylIndex) => {
+            const romanizedSyllable = romanizedLine.chunk[sylIndex];
+            return {
+              ...syllable,
+              romanizedText: romanizedSyllable?.text || syllable.text
+            };
+          });
+        } else if (romanizedLine.syllabus?.length > 0) {
+          updatedLine.syllabus = updatedLine.syllabus.map((syllable, sylIndex) => {
+            const romanizedSyllable = romanizedLine.syllabus[sylIndex];
+            return {
+              ...syllable,
+              romanizedText: romanizedSyllable?.romanizedText || syllable.text
+            };
+          });
+        }
       }
       else if (romanizedLine.text) {
          updatedLine.romanizedText = romanizedLine.text;

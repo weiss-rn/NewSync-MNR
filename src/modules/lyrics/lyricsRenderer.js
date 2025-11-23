@@ -868,7 +868,7 @@ class LyricsPlusRenderer {
             if (isShortDuration) decayStrength += Math.max(0, 1.0 - (totalDuration - 1000) / 500) * 0.4;
             if (hasUnbalancedSyllables) decayStrength += Math.pow(1.0 - penaltyFactor, 0.7) * 1.2;
 
-            maxDecayRate = Math.min(decayStrength, 0.85);
+            maxDecayRate = Math.min(decayStrength, 0.7);
           }
           wordSpan._cachedChars.forEach((span, index) => {
             const positionInWord = numChars > 1 ? index / (numChars - 1) : 0;
@@ -1035,83 +1035,149 @@ class LyricsPlusRenderer {
   /**
    * Renders the translation/romanization container for a given lyric line.
    * @param {HTMLElement} lineElement - The DOM element for the lyric line.
-   * @param {object} lineData - The data object for the lyric line (from lyrics.data).
-   * @param {string} displayMode - The current display mode ('none', 'translate', 'romanize', 'both').
-   * @private
-   */
+  * @param {object} lineData - The data object for the lyric line (from lyrics.data).
+  * @param {string} displayMode - The current display mode ('none', 'translate', 'romanize', 'both').
+  * @private
+  */
   _renderTranslationContainer(lineElement, lineData, displayMode) {
+    const insertAfterMainContainer = (element) => {
+      const mainContainer = lineElement.querySelector(".main-vocal-container");
+      if (mainContainer && mainContainer.parentNode === lineElement) {
+        lineElement.insertBefore(
+          element,
+          mainContainer.nextSibling ? mainContainer.nextSibling : null
+        );
+      } else {
+        lineElement.appendChild(element);
+      }
+    };
+
     const isRTL = this._isRTL(this._getDataText(lineData, true));
     const hasSyl = Array.isArray(lineData.syllabus) && lineData.syllabus.length > 0;
-    if (displayMode === "romanize" || displayMode === "both") {
-      if (!this._isPurelyLatinScript(lineData.text)) {
-        const isWordSynced = lineElement.querySelector(".lyrics-syllable-wrap") !== null;
-
-        if (hasSyl && lineData.syllabus.some(s => (this._getDataText(s, false) || "").trim()) && isWordSynced) {
-
-          if (isRTL) {
-            const cont = document.createElement("div");
-            cont.classList.add("lyrics-romanization-container");
-
-            lineData.syllabus.forEach(s => {
-              const txt = this._getDataText(s, false);
-              if (!txt) return;
-
-              const span = document.createElement("span");
-              span.className = "lyrics-syllable";
-              span.textContent = txt;
-
-              span.dataset.startTime = s.time;
-              span.dataset.duration = s.duration;
-              span.dataset.endTime = s.time + s.duration;
-              span._startTimeMs = s.time;
-              span._durationMs = s.duration;
-              span._endTimeMs = s.time + s.duration;
-              span._isFirstInContainer = true; //force fix bleeding?
-
-              cont.appendChild(span);
-            });
-
-            if (cont.textContent.trim()) {
-              if (this._isRTL(cont.textContent)) cont.classList.add("rtl-text");
-              lineElement.appendChild(cont);
-            }
-
-          } else {
-            const wraps = Array.from(lineElement.querySelectorAll(".lyrics-syllable-wrap"));
-
-            for (let i = 0; i < lineData.syllabus.length && i < wraps.length; i++) {
-              const s = lineData.syllabus[i];
-              const wrap = wraps[i];
-
-              const transTxt = (this._getDataText(s, false) || "");
-              if (!transTxt) continue;
-
-
-              const tr = document.createElement("span");
-              tr.className = "lyrics-syllable transliteration";
-              wrap.appendChild(tr);
-
-              tr.textContent = transTxt;
-              tr.dataset.startTime = s.time;
-              tr.dataset.duration = s.duration;
-              tr.dataset.endTime = s.time + s.duration;
-              tr._startTimeMs = s.time;
-              tr._durationMs = s.duration;
-              tr._endTimeMs = s.time + s.duration;
-              tr._isFirstInContainer = true; //force fix bleeding?
-            }
-          }
-        } else if (lineData.romanizedText && lineData.text.trim() !== lineData.romanizedText.trim()) {
-          const cont = document.createElement("div");
-          cont.classList.add("lyrics-romanization-container");
-          cont.textContent = this._getDataText(lineData, false);
-
-          if (this._isRTL(cont.textContent)) {
-            cont.classList.add("rtl-text");
-          }
-
-          lineElement.appendChild(cont);
+    const isWordSynced = lineElement.querySelector(".lyrics-syllable-wrap") !== null;
+    
+    // Skip romanization if the line is purely Latin script (no need for romanization)
+    const originalText = this._getDataText(lineData, true);
+    const isPurelyLatin = this._isPurelyLatinScript(originalText);
+    
+    // Check if background vocal exists and is purely Latin (only if not already purely Latin)
+    let hasBackgroundVocal = false;
+    let isBackgroundVocalPurelyLatin = false;
+    if (hasSyl && !isPurelyLatin) {
+      // Only check if we need to (i.e., main line is not purely Latin)
+      // Build background text in single pass instead of filter+map
+      let backgroundText = "";
+      for (let i = 0; i < lineData.syllabus.length; i++) {
+        const s = lineData.syllabus[i];
+        if (s.isBackground) {
+          hasBackgroundVocal = true;
+          backgroundText += this._getDataText(s, true);
         }
+      }
+      if (hasBackgroundVocal) {
+        isBackgroundVocalPurelyLatin = this._isPurelyLatinScript(backgroundText);
+      }
+    }
+    
+    // Skip romanization if main line is purely Latin (including both main and background vocal if both exist)
+    const shouldSkipRomanization = isPurelyLatin;
+    
+    if ((displayMode === "romanize" || displayMode === "both") && !shouldSkipRomanization) {
+      // Check if we have romanization in syllables (could be prebuilt Apple or from Google/Gemini for word-by-word)
+      const hasSyllableRomanization = hasSyl && 
+        lineData.syllabus.some(s => {
+          const romanized = this._getDataText(s, false);
+          return romanized && romanized.trim();
+        });
+      
+      // Check if romanization in syllables is actually different from original (prebuilt Apple style)
+      const hasPrebuiltRomanization = hasSyllableRomanization && 
+        lineData.syllabus.some(s => {
+          const romanized = this._getDataText(s, false);
+          const original = this._getDataText(s, true);
+          return romanized && romanized.trim() && romanized !== original;
+        });
+      
+      // Check if we have line-level romanization from Google/Gemini
+      const hasLineLevelRomanization = lineData.romanizedText && 
+        lineData.text.trim() !== lineData.romanizedText.trim();
+
+      if (hasPrebuiltRomanization && isWordSynced && !isRTL) {
+        // For word-by-word with prebuilt pronunciation (Apple): use wrapping
+        const wraps = Array.from(lineElement.querySelectorAll(".lyrics-syllable-wrap"));
+
+        for (let i = 0; i < lineData.syllabus.length && i < wraps.length; i++) {
+          const s = lineData.syllabus[i];
+          const wrap = wraps[i];
+
+          // Skip romanization for background vocal if it's purely Latin
+          if (s.isBackground && hasBackgroundVocal && isBackgroundVocalPurelyLatin) {
+            continue;
+          }
+
+          const transTxt = (this._getDataText(s, false) || "");
+          if (!transTxt.trim()) continue;
+
+          const tr = document.createElement("span");
+          tr.className = "lyrics-syllable transliteration";
+          wrap.appendChild(tr);
+
+          tr.textContent = transTxt;
+          tr.dataset.startTime = s.time;
+          tr.dataset.duration = s.duration;
+          tr.dataset.endTime = s.time + s.duration;
+          tr._startTimeMs = s.time;
+          tr._durationMs = s.duration;
+          tr._endTimeMs = s.time + s.duration;
+          tr._isFirstInContainer = true;
+        }
+      } else if (hasSyllableRomanization) {
+        // For word-by-word with romanization in syllables but no wraps or RTL: use container
+        // This handles Musixmatch word-by-word that gets romanization from Google/Gemini per-syllable
+        // Even if romanization is same as original (Google failed), still render container
+        const cont = document.createElement("div");
+        cont.classList.add("lyrics-romanization-container");
+
+        lineData.syllabus.forEach(s => {
+          // Skip romanization for background vocal if it's purely Latin
+          if (s.isBackground && hasBackgroundVocal && isBackgroundVocalPurelyLatin) {
+            return;
+          }
+          
+          const txt = this._getDataText(s, false);
+          if (!txt) return;
+
+          const span = document.createElement("span");
+          span.className = "lyrics-syllable";
+          span.textContent = txt;
+
+          span.dataset.startTime = s.time;
+          span.dataset.duration = s.duration;
+          span.dataset.endTime = s.time + s.duration;
+          span._startTimeMs = s.time;
+          span._durationMs = s.duration;
+          span._endTimeMs = s.time + s.duration;
+          span._isFirstInContainer = true;
+
+          cont.appendChild(span);
+        });
+
+        if (cont.textContent.trim()) {
+          if (this._isRTL(cont.textContent)) cont.classList.add("rtl-text");
+          insertAfterMainContainer(cont);
+        }
+      } else if (hasLineLevelRomanization) {
+        // For line-level romanization (Google/Gemini): always use container, no wrapping
+        // This handles Musixmatch word-by-word and other sources that get romanization from Google/Gemini
+        const cont = document.createElement("div");
+        cont.classList.add("lyrics-romanization-container");
+        cont.textContent = this._getDataText(lineData, false);
+
+        if (this._isRTL(cont.textContent)) {
+          cont.classList.add("rtl-text");
+        }
+
+        insertAfterMainContainer(cont);
       }
     }
     if (displayMode === "translate" || displayMode === "both") {
