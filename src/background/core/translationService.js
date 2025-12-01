@@ -11,12 +11,22 @@ import { LyricsService } from './lyricsService.js';
 import { GoogleService } from '../services/googleService.js';
 import { GeminiService } from '../gemini/geminiService.js';
 
+/** @typedef {import('../../types').SongInfo} SongInfo */
+/** @typedef {import('../../types').LyricsData} LyricsData */
+/** @typedef {import('../../types').LyricsCacheEntry} LyricsCacheEntry */
+/** @typedef {import('../../types').TranslationAction} TranslationAction */
+/** @typedef {import('../../types').TranslationMeta} TranslationMeta */
+/** @typedef {import('../../types').TranslationResult} TranslationResult */
+/** @typedef {import('../../types').TranslationSettings} TranslationSettings */
+
 export class TranslationService {
+  /** @param {string | null | undefined} lang */
   static normalizeLanguageCode(lang) {
     if (!lang || typeof lang !== 'string') return '';
     return lang.trim().toLowerCase().split(/[-_]/)[0];
   }
 
+  /** @param {LyricsData} originalLyrics */
   static async detectSourceLanguage(originalLyrics) {
     const sampleTexts = originalLyrics?.data
       ?.map(line => line.text)
@@ -41,6 +51,12 @@ export class TranslationService {
     }
   }
 
+  /**
+   * Annotate cached translation metadata before returning it.
+   * @param {LyricsData} translatedLyrics
+   * @param {'memory' | 'db'} cacheSource
+   * @returns {LyricsData}
+   */
   static annotateCacheHit(translatedLyrics, cacheSource) {
     if (!translatedLyrics.translationMeta) {
       translatedLyrics.translationMeta = {};
@@ -51,11 +67,23 @@ export class TranslationService {
     return translatedLyrics;
   }
 
+  /**
+   * @param {SongInfo} songInfo
+   * @param {TranslationAction} action
+   * @param {string} targetLang
+   */
   static createCacheKey(songInfo, action, targetLang) {
     const baseLyricsCacheKey = LyricsService.createCacheKey(songInfo);
     return `${baseLyricsCacheKey} - ${action} - ${targetLang}`;
   }
 
+  /**
+   * @param {SongInfo} songInfo
+   * @param {TranslationAction} action
+   * @param {string} targetLang
+   * @param {boolean} [forceReload=false]
+   * @returns {Promise<LyricsData>}
+   */
   static async getOrFetch(songInfo, action, targetLang, forceReload = false) {
     const translatedKey = this.createCacheKey(songInfo, action, targetLang);
     
@@ -92,6 +120,13 @@ export class TranslationService {
     }
   }
 
+  /**
+   * @param {string} translatedKey
+   * @param {LyricsData} originalLyrics
+   * @param {number | string} originalVersion
+   * @param {TranslationAction} action
+   * @param {string} targetLang
+   */
   static async performAndCacheTranslation(translatedKey, originalLyrics, originalVersion, action, targetLang) {
     const settings = await SettingsManager.getTranslationSettings();
     const resolvedTargetLang = settings.overrideTranslateTarget && settings.customTranslateTarget
@@ -137,6 +172,10 @@ export class TranslationService {
     return finalTranslatedLyrics;
   }
 
+  /**
+   * @param {string} key
+   * @param {number | string} originalVersion
+   */
   static async getCached(key, originalVersion) {
     // Check memory
     if (state.hasCached(key)) {
@@ -162,6 +201,13 @@ export class TranslationService {
     return null;
   }
 
+  /**
+   * @param {LyricsData} originalLyrics
+   * @param {TranslationAction} action
+   * @param {string} targetLang
+   * @param {TranslationSettings} settings
+   * @returns {Promise<TranslationResult>}
+   */
   static async performTranslation(originalLyrics, action, targetLang, settings) {
     if (action === 'translate') {
       return this.translate(originalLyrics, targetLang, settings);
@@ -179,11 +225,18 @@ export class TranslationService {
     };
   }
 
+  /**
+   * @param {LyricsData} originalLyrics
+   * @param {string} targetLang
+   * @param {TranslationSettings} settings
+   * @returns {Promise<TranslationResult>}
+   */
   static async translate(originalLyrics, targetLang, settings) {
     const useGemini = settings.translationProvider === PROVIDERS.GEMINI && settings.geminiApiKey;
     const sourceLang = await this.detectSourceLanguage(originalLyrics);
     const normalizedTarget = this.normalizeLanguageCode(targetLang);
 
+    /** @type {TranslationMeta} */
     const meta = {
       provider: useGemini ? PROVIDERS.GEMINI : PROVIDERS.GOOGLE,
       sourceLang: sourceLang || 'auto',
@@ -226,6 +279,10 @@ export class TranslationService {
     };
   }
 
+  /**
+   * @param {LyricsData} originalLyrics
+   * @param {string} targetLang
+   */
   static async translateWithGoogle(originalLyrics, targetLang) {
     const texts = originalLyrics.data.map(line => line.text);
     const translatedTexts = new Array(texts.length);
@@ -255,12 +312,18 @@ export class TranslationService {
     };
   }
 
+  /**
+   * @param {LyricsData} originalLyrics
+   * @param {TranslationSettings} settings
+   * @returns {Promise<TranslationResult>}
+   */
   static async romanize(originalLyrics, settings) {
     // Check for prebuilt romanization
     const hasPrebuilt = originalLyrics.data.some(line =>
       line.romanizedText || (line.syllabus && line.syllabus.some(syl => syl.romanizedText))
     );
 
+    /** @type {TranslationMeta} */
     const meta = {
       provider: settings.romanizationProvider === PROVIDERS.GEMINI && settings.geminiApiKey
         ? PROVIDERS.GEMINI
@@ -321,6 +384,10 @@ export class TranslationService {
     return { data: googleResult, meta };
   }
 
+  /**
+   * @param {LyricsData} originalLyrics
+   * @param {string[]} translatedTexts
+   */
   static mergeTranslatedTexts(originalLyrics, translatedTexts) {
     return originalLyrics.data.map((line, index) => ({
       ...line,

@@ -8,12 +8,27 @@ import { createRomanizationPrompt } from './prompts.js';
 import { SchemaBuilder } from './schemaBuilder.js';
 import { ResponseValidator } from './responseValidator.js';
 
+/** @typedef {import('../../types').TranslationSettings} TranslationSettings */
+/** @typedef {import('../../types').StructuredLyricsInput} StructuredLyricsInput */
+/** @typedef {import('../../types').StructuredLyricsLine} StructuredLyricsLine */
+/** @typedef {import('../../types').GeminiRomanizedResponse} GeminiRomanizedResponse */
+/** @typedef {import('../../types').StructuredLyricsChunk} StructuredLyricsChunk */
+
+/**
+ * @typedef {{ type: 'latin', data: StructuredLyricsLine, originalIndex: number } | { type: 'api', apiIndex: number, originalIndex: number }} ReconstructionPlanItem
+ */
+
 export class GeminiRomanizer {
+  /** @param {TranslationSettings} settings */
   constructor(settings) {
     this.settings = settings;
     this.url = `https://generativelanguage.googleapis.com/v1beta/models/${settings.geminiRomanizationModel}:generateContent?key=${settings.geminiApiKey}`;
   }
 
+  /**
+   * @param {StructuredLyricsInput} structuredInput
+   * @returns {Promise<StructuredLyricsInput>}
+   */
   async romanize(structuredInput) {
     const { lyricsForApi, reconstructionPlan } = this.prepareLyrics(structuredInput);
     const hasAnyChunks = lyricsForApi.some(line => line.chunk && line.chunk.length > 0);
@@ -94,16 +109,17 @@ export class GeminiRomanizer {
         });
 
       } catch (e) {
-        console.error(`Gemini romanization attempt ${attempt} failed:`, e.message);
+        const attemptError = e instanceof Error ? e : new Error(String(e));
+        console.error(`Gemini romanization attempt ${attempt} failed:`, attemptError.message);
         
         if (attempt === CONFIG.GEMINI.MAX_RETRIES) {
-          throw new Error(`Gemini romanization failed after ${CONFIG.GEMINI.MAX_RETRIES} attempts: ${e.message}`);
+          throw new Error(`Gemini romanization failed after ${CONFIG.GEMINI.MAX_RETRIES} attempts: ${attemptError.message}`);
         }
         
-        if (e instanceof SyntaxError) {
+        if (attemptError instanceof SyntaxError) {
           currentContents.push({
             role: 'user',
-            parts: [{ text: `Your previous response was not valid JSON. Please provide a corrected JSON response. Error: ${e.message}` }]
+            parts: [{ text: `Your previous response was not valid JSON. Please provide a corrected JSON response. Error: ${attemptError.message}` }]
           });
         }
       }
@@ -112,6 +128,11 @@ export class GeminiRomanizer {
     throw new Error("Unexpected error: Gemini romanization process completed without success");
   }
 
+  /**
+   * @param {Array<{role: string, parts: Array<{text: string}>}>} contents
+   * @param {any} schema
+   * @returns {Promise<string>}
+   */
   async callGeminiAPI(contents, schema) {
     const requestBody = {
       contents,
@@ -144,9 +165,16 @@ export class GeminiRomanizer {
     return data.candidates[0].content.parts[0].text;
   }
 
+  /**
+   * @param {StructuredLyricsInput} structuredInput
+   * @returns {{ lyricsForApi: StructuredLyricsInput, reconstructionPlan: ReconstructionPlanItem[] }}
+   */
   prepareLyrics(structuredInput) {
+    /** @type {StructuredLyricsInput} */
     const lyricsForApi = [];
+    /** @type {ReconstructionPlanItem[]} */
     const reconstructionPlan = [];
+    /** @type {Map<string, number>} */
     const contentToApiIndexMap = new Map();
 
     structuredInput.forEach((line, originalIndex) => {
@@ -180,7 +208,14 @@ export class GeminiRomanizer {
     return { lyricsForApi, reconstructionPlan };
   }
 
+  /**
+   * @param {GeminiRomanizedResponse['romanized_lyrics']} romanizedApiLyrics
+   * @param {ReconstructionPlanItem[]} reconstructionPlan
+   * @param {boolean} hasAnyChunks
+   * @returns {StructuredLyricsInput}
+   */
   reconstructLyrics(romanizedApiLyrics, reconstructionPlan, hasAnyChunks) {
+    /** @type {StructuredLyricsInput} */
     const fullList = [];
     
     reconstructionPlan.forEach(planItem => {
@@ -209,6 +244,10 @@ export class GeminiRomanizer {
     return fullList;
   }
 
+  /**
+   * @param {StructuredLyricsInput} lyricsForApi
+   * @param {boolean} hasAnyChunks
+   */
   createInitialPrompt(lyricsForApi, hasAnyChunks) {
     const { overrideGeminiRomanizePrompt, customGeminiRomanizePrompt } = this.settings;
     
@@ -217,6 +256,12 @@ export class GeminiRomanizer {
       : createRomanizationPrompt(lyricsForApi, hasAnyChunks);
   }
 
+  /**
+   * @param {StructuredLyricsInput} problematicLines
+   * @param {{errors: string[], detailedErrors: Array<{lineIndex?: number, errors: string[]}>}} validationResult
+   * @param {StructuredLyricsInput} lyricsForApi
+   * @param {boolean} hasAnyChunks
+   */
   createCorrectionPrompt(problematicLines, validationResult, lyricsForApi, hasAnyChunks) {
     if (problematicLines.length > 0 && problematicLines.length < lyricsForApi.length * 0.8) {
       return this.createSelectiveFixPrompt(problematicLines, validationResult, hasAnyChunks);
@@ -225,6 +270,11 @@ export class GeminiRomanizer {
     }
   }
 
+  /**
+   * @param {StructuredLyricsInput} problematicLines
+   * @param {{errors: string[], detailedErrors: Array<{lineIndex?: number, errors: string[]}>}} validationResult
+   * @param {boolean} hasAnyChunks
+   */
   createSelectiveFixPrompt(problematicLines, validationResult, hasAnyChunks) {
     return `CRITICAL ERROR CORRECTION NEEDED: Your previous response had structural errors.
 
@@ -244,6 +294,11 @@ ${JSON.stringify(problematicLines.map(line => ({
 PROVIDE ONLY THE CORRECTED LINES in the proper format.`;
   }
 
+  /**
+   * @param {{errors: string[], detailedErrors: Array<{lineIndex?: number, errors: string[]}>}} validationResult
+   * @param {StructuredLyricsInput} lyricsForApi
+   * @param {boolean} hasAnyChunks
+   */
   createFullRetryPrompt(validationResult, lyricsForApi, hasAnyChunks) {
     return `CRITICAL STRUCTURAL ERRORS DETECTED: Your previous response had major structural issues.
 
@@ -258,6 +313,11 @@ ${JSON.stringify(lyricsForApi, null, 2)}
 PROVIDE A COMPLETE CORRECTED RESPONSE respecting the original structure.`;
   }
 
+  /**
+   * @param {GeminiRomanizedResponse | null} lastValidResponse
+   * @param {GeminiRomanizedResponse['romanized_lyrics']} fixedLines
+   * @returns {GeminiRomanizedResponse}
+   */
   mergeSelectiveFixes(lastValidResponse, fixedLines) {
     if (!lastValidResponse || !lastValidResponse.romanized_lyrics) {
       console.warn('No valid previous response to merge with, using fixed lines as base');
@@ -284,8 +344,16 @@ PROVIDE A COMPLETE CORRECTED RESPONSE respecting the original structure.`;
     return mergedResponse;
   }
 
+  /**
+   * @param {StructuredLyricsInput} originalLyricsForApi
+   * @param {GeminiRomanizedResponse} response
+   * @param {Array<{lineIndex?: number, errors: string[]}>} [detailedErrors=[]]
+   * @returns {StructuredLyricsInput}
+   */
   getProblematicLines(originalLyricsForApi, response, detailedErrors = []) {
+    /** @type {StructuredLyricsInput} */
     const problematicLines = [];
+    /** @type {Set<number>} */
     const problematicIndices = new Set();
 
     detailedErrors.forEach(error => {

@@ -4,8 +4,17 @@
 
 import { Utilities } from '../utils/utilities.js';
 
+/** @typedef {import('../../types').StructuredLyricsInput} StructuredLyricsInput */
+/** @typedef {import('../../types').GeminiRomanizedResponse} GeminiRomanizedResponse */
+/** @typedef {import('../../types').GeminiResponseLine} GeminiResponseLine */
+
 export class ResponseValidator {
+  /**
+   * @param {StructuredLyricsInput} originalLyricsForApi
+   * @param {GeminiRomanizedResponse} geminiResponse
+   */
   static validate(originalLyricsForApi, geminiResponse) {
+    /** @type {string[]} */
     const errors = [];
     const detailedErrors = [];
 
@@ -21,6 +30,14 @@ export class ResponseValidator {
 
     geminiResponse.romanized_lyrics.forEach((romanizedLine, index) => {
       const originalLine = originalLyricsForApi[index];
+      if (!originalLine) return;
+
+      /** @type {GeminiResponseLine} */
+      const normalizedOriginalLine = {
+        ...originalLine,
+        original_line_index: originalLine.original_line_index ?? index,
+        chunk: originalLine.chunk || []
+      };
       const lineErrors = [];
 
       if (romanizedLine.original_line_index !== index) {
@@ -35,7 +52,7 @@ export class ResponseValidator {
         lineErrors.push(error);
       }
 
-      const originalHasChunks = Array.isArray(originalLine.chunk) && originalLine.chunk.length > 0;
+      const originalHasChunks = Array.isArray(normalizedOriginalLine.chunk) && normalizedOriginalLine.chunk.length > 0;
       const romanizedHasChunks = Array.isArray(romanizedLine.chunk);
 
       if (!originalHasChunks && romanizedHasChunks) {
@@ -47,12 +64,12 @@ export class ResponseValidator {
           const error = `Line ${index}: missing expected chunk array`;
           errors.push(error);
           lineErrors.push(error);
-        } else if (romanizedLine.chunk.length !== originalLine.chunk.length) {
-          const error = `Line ${index}: chunk count mismatch (original ${originalLine.chunk.length}, got ${romanizedLine.chunk.length})`;
+        } else if (romanizedLine.chunk.length !== normalizedOriginalLine.chunk.length) {
+          const error = `Line ${index}: chunk count mismatch (original ${normalizedOriginalLine.chunk.length}, got ${romanizedLine.chunk.length})`;
           errors.push(error);
           lineErrors.push(error);
         } else {
-          const chunkErrors = this.validateChunkDistribution(originalLine, romanizedLine, index);
+          const chunkErrors = this.validateChunkDistribution(normalizedOriginalLine, romanizedLine, index);
           if (chunkErrors.length > 0) {
             errors.push(...chunkErrors);
             lineErrors.push(...chunkErrors);
@@ -68,6 +85,11 @@ export class ResponseValidator {
     return { isValid: errors.length === 0, errors, detailedErrors };
   }
 
+  /**
+   * @param {GeminiResponseLine} originalLine
+   * @param {GeminiResponseLine} romanizedLine
+   * @param {number} lineIndex
+   */
   static validateChunkDistribution(originalLine, romanizedLine, lineIndex) {
     const errors = [];
 
@@ -93,6 +115,10 @@ export class ResponseValidator {
     return errors;
   }
 
+  /**
+   * @param {GeminiResponseLine} romanizedLine
+   * @param {number} lineIndex
+   */
   static validateTextCoherence(romanizedLine, lineIndex) {
     const errors = [];
 

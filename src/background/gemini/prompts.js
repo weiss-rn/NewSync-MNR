@@ -1,3 +1,10 @@
+/** @typedef {import('../../types').StructuredLyricsInput} StructuredLyricsInput */
+/** @typedef {import('../../types').TranslationSettings} TranslationSettings */
+
+/**
+ * @param {StructuredLyricsInput} lyricsForApi
+ * @param {boolean} hasAnyChunks
+ */
 export function createRomanizationPrompt(lyricsForApi, hasAnyChunks) {
     const basePrompt = `You are a professional linguistic transcription system specialized in PHONETIC ROMANIZATION.
 
@@ -407,7 +414,12 @@ Analyze the language(s) in the input, apply appropriate phonetic rules, preserve
     return basePrompt;
 }
 
-export function createTranslationPrompt(settings = {overrideGeminiPrompt: false, customGeminiPrompt: ''}, texts, targetLang) {
+/**
+ * @param {string[]} texts
+ * @param {string} targetLang
+ * @param {TranslationSettings} [settings={overrideGeminiPrompt: false, customGeminiPrompt: ''}]
+ */
+export function createTranslationPrompt(texts, targetLang, settings = {overrideGeminiPrompt: false, customGeminiPrompt: ''}) {
   const translationRules = (settings.overrideGeminiPrompt && settings.customGeminiPrompt) ?
         settings.customGeminiPrompt :
         `You are a professional translator specializing in song lyrics. Your task is to translate lyrics into ${targetLang} with precision and consistency.

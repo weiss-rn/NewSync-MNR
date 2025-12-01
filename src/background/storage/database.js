@@ -4,7 +4,10 @@
 
 import { CONFIG } from '../constants.js';
 
+/** @typedef {{ name: string, version: number, store: string }} DBConfig */
+
 class DatabaseManager {
+  /** @param {DBConfig} dbConfig */
   constructor(dbConfig) {
     this.config = dbConfig;
   }
@@ -14,7 +17,8 @@ class DatabaseManager {
       const request = indexedDB.open(this.config.name, this.config.version);
       
       request.onupgradeneeded = (event) => {
-        const db = event.target.result;
+        const dbRequest = /** @type {IDBOpenDBRequest} */ (event.target);
+        const db = dbRequest.result;
         if (!db.objectStoreNames.contains(this.config.store)) {
           const keyPath = this.config.store === 'localLyrics' ? 'songId' : 'key';
           db.createObjectStore(this.config.store, { keyPath });

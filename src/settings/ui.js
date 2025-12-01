@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { loadSettings, saveSettings, updateSettings, getSettings, updateCacheSize, clearCache, clearCacheSilently, setupSettingsMessageListener, uploadLocalLyrics, getLocalLyricsList, deleteLocalLyrics, updateLocalLyrics, fetchLocalLyrics } from './settingsManager.js';
 import { parseSyncedLyrics, parseAppleMusicLRC, parseAppleTTML, convertToStandardJson, v1Tov2 } from './parser.js';
 

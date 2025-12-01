@@ -12,17 +12,32 @@ import { KPoeService } from '../services/kpoeService.js';
 import { LRCLibService } from '../services/lrclibService.js';
 import { YouTubeService } from '../services/youtubeService.js';
 
+/** @typedef {import('../../types').SongInfo} SongInfo */
+/** @typedef {import('../../types').LyricsCacheEntry} LyricsCacheEntry */
+/** @typedef {import('../../types').LyricsData} LyricsData */
+/** @typedef {import('../../types').LyricsSettings} LyricsSettings */
+
 export class LyricsService {
+  /** @param {SongInfo} songInfo */
   static createCacheKey(songInfo) {
-    return `${songInfo.title} - ${songInfo.artist} - ${songInfo.album} - ${songInfo.duration}`;
+    const artist = songInfo.artist || '';
+    const album = songInfo.album || '';
+    const duration = songInfo.duration || '';
+    return `${songInfo.title} - ${artist} - ${album} - ${duration}`;
   }
 
+  /** @param {SongInfo | null | undefined} songInfo */
   static validateSongInfo(songInfo) {
     if (!songInfo || !songInfo.title || !songInfo.artist) {
       throw new Error('Song info must include title and artist');
     }
   }
 
+  /**
+   * @param {SongInfo} songInfo
+   * @param {boolean} [forceReload=false]
+   * @returns {Promise<LyricsCacheEntry>}
+   */
   static async getOrFetch(songInfo, forceReload = false) {
     this.validateSongInfo(songInfo);
 
@@ -56,6 +71,7 @@ export class LyricsService {
     return fetchPromise;
   }
 
+  /** @param {string} key */
   static async getFromDB(key) {
     const settings = await SettingsManager.get({ cacheStrategy: 'aggressive' });
     
@@ -68,7 +84,10 @@ export class LyricsService {
     if (!result) return null;
 
     const now = Date.now();
-    const expirationTime = CONFIG.CACHE_EXPIRY[settings.cacheStrategy];
+    const strategy = settings.cacheStrategy && settings.cacheStrategy in CONFIG.CACHE_EXPIRY
+      ? settings.cacheStrategy
+      : 'aggressive';
+    const expirationTime = CONFIG.CACHE_EXPIRY[strategy];
     const age = now - result.timestamp;
 
     if (age < expirationTime) {
@@ -79,6 +98,7 @@ export class LyricsService {
     return null;
   }
 
+  /** @param {SongInfo} songInfo */
   static async checkLocalLyrics(songInfo) {
     if (songInfo.songId) {
       const directLocal = await localLyricsDB.get(songInfo.songId);
@@ -110,13 +130,21 @@ export class LyricsService {
     return null;
   }
 
+  /**
+   * @param {SongInfo} songInfo
+   * @param {string} cacheKey
+   * @param {boolean} forceReload
+   * @returns {Promise<LyricsCacheEntry>}
+   */
   static async fetchNewLyrics(songInfo, cacheKey, forceReload) {
     try {
       const settings = await SettingsManager.getLyricsSettings();
+      /** @type {RequestInit} */
       const fetchOptions = settings.cacheStrategy === 'none' ? { cache: 'no-store' } : {};
 
       const providers = this.getProviderOrder(settings);
       
+      /** @type {LyricsData | null} */
       let lyrics = null;
       for (const provider of providers) {
         lyrics = await this.fetchFromProvider(provider, songInfo, settings, fetchOptions, forceReload);
@@ -128,7 +156,7 @@ export class LyricsService {
         lyrics = await YouTubeService.fetchSubtitles(songInfo);
       }
 
-      if (Utilities.isEmptyLyrics(lyrics)) {
+      if (!lyrics || Utilities.isEmptyLyrics(lyrics)) {
         throw new Error('No lyrics found from any provider');
       }
 
@@ -160,6 +188,10 @@ export class LyricsService {
     }
   }
 
+  /**
+   * @param {LyricsSettings} settings
+   * @returns {string[]}
+   */
   static getProviderOrder(settings) {
     const allProviders = Object.values(PROVIDERS).filter(
       p => p !== PROVIDERS.GOOGLE && p !== PROVIDERS.GEMINI
@@ -175,6 +207,14 @@ export class LyricsService {
     ];
   }
 
+  /**
+   * @param {string} provider
+   * @param {SongInfo} songInfo
+   * @param {LyricsSettings} settings
+   * @param {RequestInit} fetchOptions
+   * @param {boolean} forceReload
+   * @returns {Promise<LyricsData | null>}
+   */
   static async fetchFromProvider(provider, songInfo, settings, fetchOptions, forceReload) {
     switch (provider) {
       case PROVIDERS.KPOE:

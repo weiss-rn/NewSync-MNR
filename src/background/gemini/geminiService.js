@@ -5,12 +5,21 @@
 import { createTranslationPrompt } from './prompts.js';
 import { GeminiRomanizer } from './geminiRomanizer.js';
 
+/** @typedef {import('../../types').LyricsData} LyricsData */
+/** @typedef {import('../../types').TranslationSettings} TranslationSettings */
+/** @typedef {import('../../types').StructuredLyricsInput} StructuredLyricsInput */
+
 export class GeminiService {
+  /**
+   * @param {string[]} texts
+   * @param {string} targetLang
+   * @param {TranslationSettings} settings
+   */
   static async translate(texts, targetLang, settings) {
     const { geminiApiKey, geminiModel } = settings;
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`;
 
-    const prompt = createTranslationPrompt(settings, texts, targetLang);
+    const prompt = createTranslationPrompt(texts, targetLang, settings);
 
     const requestBody = {
       contents: [{ parts: [{ text: prompt }] }],
@@ -67,11 +76,16 @@ export class GeminiService {
       
       return parsedJson.translated_lyrics;
     } catch (e) {
-      console.error("Gemini response parsing failed:", e);
-      throw new Error(`Gemini translation failed: Could not parse valid JSON. ${e.message}`);
+      const parseError = e instanceof Error ? e : new Error(String(e));
+      console.error("Gemini response parsing failed:", parseError);
+      throw new Error(`Gemini translation failed: Could not parse valid JSON. ${parseError.message}`);
     }
   }
 
+  /**
+   * @param {LyricsData} originalLyrics
+   * @param {TranslationSettings} settings
+   */
   static async romanize(originalLyrics, settings) {
     if (!settings.geminiApiKey) {
       throw new Error('Gemini API Key is not provided');
@@ -83,6 +97,10 @@ export class GeminiService {
     return romanizer.romanize(structuredInput);
   }
 
+  /**
+   * @param {LyricsData} originalLyrics
+   * @returns {StructuredLyricsInput}
+   */
   static prepareStructuredInput(originalLyrics) {
     return originalLyrics.data.map((line, index) => {
       const lineObject = {

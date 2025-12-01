@@ -9,10 +9,10 @@ import { LyricsService } from './lyricsService.js';
 import { TranslationService } from './translationService.js';
 import { SponsorBlockService } from '../services/sponsorblockService.js';
 
-/**
- * @typedef {{type: string, [k: string]: any}} BackgroundMessage
- * @typedef {(response: any) => void} SendResponse
- */
+/** @typedef {import('../../types').BackgroundMessage} BackgroundMessage */
+/** @typedef {import('../../types').SendResponse} SendResponse */
+/** @typedef {import('../../types').SongInfo} SongInfo */
+
 export class MessageHandler {
   /**
    * Handle incoming background messages.
@@ -44,8 +44,9 @@ export class MessageHandler {
     
     if (handler) {
       handler().catch(error => {
+        const errorMessage = error instanceof Error ? error.message : String(error);
         console.error(`Error handling ${message.type}:`, error);
-        sendResponse({ success: false, error: error.message });
+        sendResponse({ success: false, error: errorMessage });
       });
       return true;
     }
@@ -65,8 +66,9 @@ export class MessageHandler {
       const { lyrics } = await LyricsService.getOrFetch(message.songInfo, message.forceReload);
       sendResponse({ success: true, lyrics, metadata: message.songInfo });
     } catch (error) {
+      const errorMessage = this.toErrorMessage(error);
       console.error(`Failed to fetch lyrics for "${message.songInfo?.title}":`, error);
-      sendResponse({ success: false, error: error.message, metadata: message.songInfo });
+      sendResponse({ success: false, error: errorMessage, metadata: message.songInfo });
     }
   }
 
@@ -85,8 +87,9 @@ export class MessageHandler {
       );
       sendResponse({ success: true, translatedLyrics });
     } catch (error) {
+      const errorMessage = this.toErrorMessage(error);
       console.error("Translation error:", error);
-      sendResponse({ success: false, error: error.message });
+      sendResponse({ success: false, error: errorMessage });
     }
   }
 
@@ -95,8 +98,9 @@ export class MessageHandler {
       const segments = await SponsorBlockService.fetch(message.videoId);
       sendResponse({ success: true, segments });
     } catch (error) {
+      const errorMessage = this.toErrorMessage(error);
       console.error(`Failed to fetch SponsorBlock segments:`, error);
-      sendResponse({ success: false, error: error.message });
+      sendResponse({ success: false, error: errorMessage });
     }
   }
 
@@ -109,8 +113,9 @@ export class MessageHandler {
       ]);
       sendResponse({ success: true, message: "Cache reset successfully" });
     } catch (error) {
+      const errorMessage = this.toErrorMessage(error);
       console.error("Cache reset error:", error);
-      sendResponse({ success: false, error: error.message });
+      sendResponse({ success: false, error: errorMessage });
     }
   }
 
@@ -127,8 +132,9 @@ export class MessageHandler {
         cacheCount: lyricsStats.count + translationsStats.count
       });
     } catch (error) {
+      const errorMessage = this.toErrorMessage(error);
       console.error("Get cache size error:", error);
-      sendResponse({ success: false, error: error.message });
+      sendResponse({ success: false, error: errorMessage });
     }
   }
 
@@ -148,8 +154,9 @@ export class MessageHandler {
       });
       sendResponse({ success: true, message: "Local lyrics uploaded successfully", songId });
     } catch (error) {
+      const errorMessage = this.toErrorMessage(error);
       console.error("Error uploading local lyrics:", error);
-      sendResponse({ success: false, error: error.message });
+      sendResponse({ success: false, error: errorMessage });
     }
   }
 
@@ -163,8 +170,9 @@ export class MessageHandler {
       }));
       sendResponse({ success: true, lyricsList: mappedList });
     } catch (error) {
+      const errorMessage = this.toErrorMessage(error);
       console.error("Error getting local lyrics list:", error);
-      sendResponse({ success: false, error: error.message });
+      sendResponse({ success: false, error: errorMessage });
     }
   }
 
@@ -191,8 +199,9 @@ export class MessageHandler {
         metadata: updatedRecord.songInfo
       });
     } catch (error) {
+      const errorMessage = this.toErrorMessage(error);
       console.error("Error updating local lyrics:", error);
-      sendResponse({ success: false, error: error.message });
+      sendResponse({ success: false, error: errorMessage });
     }
   }
 
@@ -206,8 +215,9 @@ export class MessageHandler {
       await localLyricsDB.delete(message.songId);
       sendResponse({ success: true, message: "Local lyrics deleted successfully" });
     } catch (error) {
+      const errorMessage = this.toErrorMessage(error);
       console.error("Error deleting local lyrics:", error);
-      sendResponse({ success: false, error: error.message });
+      sendResponse({ success: false, error: errorMessage });
     }
   }
 
@@ -229,9 +239,15 @@ export class MessageHandler {
         sendResponse({ success: false, error: "Local lyrics not found" });
       }
     } catch (error) {
+      const errorMessage = this.toErrorMessage(error);
       console.error("Error fetching local lyrics:", error);
-      sendResponse({ success: false, error: error.message });
+      sendResponse({ success: false, error: errorMessage });
     }
+  }
+
+  /** @param {unknown} error */
+  static toErrorMessage(error) {
+    return error instanceof Error ? error.message : String(error);
   }
 }
 
